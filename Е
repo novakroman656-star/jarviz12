@@ -1,1 +1,365 @@
+<!doctype html>
+<html lang="uk">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width,initial-scale=1" />
+<title>Jarviz 12 AI — Web Voice 3D</title>
+<link rel="icon" href="data:;base64,iVBORw0KGgo=">
+<style>
+  :root{--bg:#0b0f14;--panel:#0f1720;--accent:#33d6ff;--text:#dbeafe}
+  html,body{height:100%;margin:0;background:linear-gradient(180deg,#04060a 0%, #0b0f14 100%);font-family:Inter,system-ui,Segoe UI,Roboto,Arial;color:var(--text)}
+  #app{display:flex;height:100%;gap:12px;padding:12px;box-sizing:border-box}
+  #left{flex:1;min-width:320px;max-width:720px;background:transparent;border-radius:12px;display:flex;flex-direction:column;overflow:hidden}
+  #stage{flex:1;border-radius:12px;background:linear-gradient(180deg, rgba(255,255,255,0.02), transparent);position:relative;display:flex;align-items:center;justify-content:center}
+  #controls{display:flex;gap:8px;padding:10px;background:rgba(255,255,255,0.02);align-items:center}
+  button{background:var(--panel);border:1px solid rgba(255,255,255,0.03);color:var(--text);padding:10px 12px;border-radius:10px;cursor:pointer}
+  button.primary{background:linear-gradient(90deg,var(--accent),#7ee7ff);color:#012;box-shadow:0 6px 18px rgba(51,214,255,0.06)}
+  #right{width:420px;background:linear-gradient(180deg, rgba(255,255,255,0.02), transparent);border-radius:12px;padding:12px;display:flex;flex-direction:column;gap:8px;box-sizing:border-box}
+  .panel{background:rgba(255,255,255,0.02);padding:10px;border-radius:8px}
+  h1{font-size:18px;margin:8px 0 0 0}
+  .log{height:220px;overflow:auto;background:rgba(0,0,0,0.15);padding:8px;border-radius:6px;font-family:monospace;font-size:13px}
+  .big{font-size:20px;font-weight:600;color:var(--accent)}
+  .stat{display:flex;justify-content:space-between;padding:6px 0;border-bottom:1px dashed rgba(255,255,255,0.03)}
+  label.switch{display:inline-flex;align-items:center;gap:8px;cursor:pointer}
+  .small{font-size:13px;color:#9fb0c8}
+  footer{font-size:12px;color:#7b8b99;padding:8px;text-align:center}
+  @media(max-width:900px){#app{flex-direction:column}#right{width:100%}#left{max-width:100%}}
+</style>
+</head>
+<body>
+<div id="app">
+  <div id="left">
+    <div id="stage">
+      <!-- Three.js canvas goes here -->
+      <canvas id="three-canvas" style="width:100%;height:100%;display:block;"></canvas>
+      <div style="position:absolute;left:14px;top:14px;color:var(--text)">
+        <div class="small">Jarviz 12 — Voice 3D (Web)</div>
+        <div class="big" id="status">Стан: <span id="state-text">очікування</span></div>
+      </div>
+      <div style="position:absolute;right:14px;top:14px;display:flex;flex-direction:column;gap:8px;align-items:flex-end">
+        <button id="listenBtn" class="primary">🎤 Говорити</button>
+        <button id="stopBtn">⏹️ Зупинити</button>
+      </div>
+      <div id="transcript" style="position:absolute;left:14px;bottom:14px;background:rgba(0,0,0,0.4);padding:8px;border-radius:6px;font-family:monospace"></div>
+    </div>
+    <div id="controls">
+      <button id="showAnalytics">📊 Показати аналітику</button>
+      <button id="smartAdvice">💡 Розумна порада</button>
+      <label class="switch small"><input id="animateNeurons" type="checkbox" checked> Анімувати нейрони</label>
+      <label class="switch small"><input id="useVoice" type="checkbox" checked> Голос у відповіді</label>
+    </div>
+  </div>
+  <div id="right">
+    <div class="panel">
+      <h1>Мозок — нейрони</h1>
+      <div id="neuralSummary" class="small">активних нейронів: <span id="activeCount">0</span></div>
+      <div id="neuralPanel" style="height:120px;margin-top:8px;background:linear-gradient(180deg, rgba(255,255,255,0.01), transparent);border-radius:6px;padding:8px;display:flex;align-items:center;justify-content:center;font-size:13px;color:#9fb0c8">
+        Нейронна активність відображена в 3D сцені.
+      </div>
+    </div>
+    <div class="panel">
+      <h1>Аналітика ринку</h1>
+      <div id="market" class="small">
+        <div class="stat"><div>Символ</div><div id="sym">BTCUSDT</div></div>
+        <div class="stat"><div>Остання ціна</div><div id="price">-</div></div>
+        <div class="stat"><div>RSI</div><div id="rsi">-</div></div>
+        <div class="stat"><div>EMA Fast / Slow</div><div id="ema">-</div></div>
+        <div class="stat"><div>MACD</div><div id="macd">-</div></div>
+        <div class="stat"><div>Сигнали</div><div id="signals">-</div></div>
+      </div>
+    </div>
+    <div class="panel">
+      <h1>Журнал</h1>
+      <div class="log" id="log"></div>
+    </div>
+    <footer>Jarviz 12 • Web Voice 3D • demo</footer>
+  </div>
+</div>
 
+<!-- Three.js from CDN -->
+<script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r152/three.min.js"></script>
+
+<script>
+/* Jarviz Web Voice 3D - single-file frontend
+ - uses Web Speech API for recognition and speechSynthesis for replies
+ - three.js for 3D responsive "brain" (particle system + links)
+ - Fetches analytics.json from same origin if available (polling)
+*/
+
+const cfg = {
+  analyticsPath: './analytics.json', // backend should expose this file in same origin
+  symbol: 'BTCUSDT',
+  pollInterval: 5000,
+  maxParticles: 300,
+  voiceLang: 'uk-UA'
+};
+
+const logEl = document.getElementById('log');
+const stateText = document.getElementById('state-text');
+const transcriptEl = document.getElementById('transcript');
+const listenBtn = document.getElementById('listenBtn');
+const stopBtn = document.getElementById('stopBtn');
+const showAnalytics = document.getElementById('showAnalytics');
+const smartAdvice = document.getElementById('smartAdvice');
+const activeCountEl = document.getElementById('activeCount');
+const animateNeuronsEl = document.getElementById('animateNeurons');
+const useVoiceEl = document.getElementById('useVoice');
+
+function log(msg){
+  const ts = new Date().toLocaleTimeString();
+  logEl.innerHTML = `<div>[${ts}] ${msg}</div>` + logEl.innerHTML;
+}
+
+let recognition = null;
+let recognizing = false;
+let finalTranscript = '';
+let synth = window.speechSynthesis;
+let selectedVoice = null;
+
+function initSpeech(){
+  const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
+  if(!SpeechRecognition){
+    log("SpeechRecognition API не підтримується у цьому браузері.");
+    listenBtn.disabled = true;
+    return;
+  }
+  recognition = new SpeechRecognition();
+  recognition.lang = cfg.voiceLang || 'uk-UA';
+  recognition.interimResults = true;
+  recognition.maxAlternatives = 1;
+  recognition.onstart = () => { recognizing = true; stateText.innerText = 'слухає'; log('Розпізнавання почалось'); transcriptEl.innerText = ''; finalTranscript=''; }
+  recognition.onresult = (event) => {
+    let interim='';
+    for(let i=event.resultIndex;i<event.results.length;i++){
+      const r = event.results[i];
+      if(r.isFinal){ finalTranscript += r[0].transcript; }
+      else { interim += r[0].transcript; }
+    }
+    transcriptEl.innerText = finalTranscript + ' ' + interim;
+  };
+  recognition.onerror = (e)=>{ log('Recognition error: '+e.error); }
+  recognition.onend = () => { recognizing=false; stateText.innerText='очікування'; if(finalTranscript) handleQuery(finalTranscript.trim()); }
+  const loadVoices = ()=>{
+    const voices = synth.getVoices();
+    selectedVoice = voices.find(v=>/ukraine|ukraine/i.test(v.lang) || /uk|ukr/i.test(v.lang) ) || voices.find(v=>/male/i.test(v.name)) || voices[0];
+    log('Voice selected: ' + (selectedVoice? selectedVoice.name : 'default'));
+  };
+  loadVoices();
+  if(synth.onvoiceschanged!==undefined) synth.onvoiceschanged = loadVoices;
+}
+
+function startListening(){
+  if(!recognition) return;
+  finalTranscript='';
+  recognition.start();
+}
+
+function stopListening(){
+  if(!recognition) return;
+  recognition.stop();
+}
+
+function speakText(text){
+  transcriptEl.innerText = '';
+  finalTranscript='';
+  if(!useVoiceEl.checked){ displayReply(text); return; }
+  if(!synth) { displayReply(text); return; }
+  const u = new SpeechSynthesisUtterance(text);
+  u.lang = cfg.voiceLang;
+  if(selectedVoice) u.voice = selectedVoice;
+  u.rate = 1.0;
+  u.pitch = 0.95;
+  synth.speak(u);
+  u.onstart = ()=>{ stateText.innerText='відповідає'; animateThinking(true); }
+  u.onend = ()=>{ stateText.innerText='очікування'; animateThinking(false); }
+  displayReply(text);
+}
+
+function displayReply(text){
+  const p = document.createElement('div');
+  p.style.padding='6px';
+  p.style.borderBottom='1px dashed rgba(255,255,255,0.03)';
+  p.innerHTML = `<b>Jarviz:</b> ${text}`;
+  logEl.prepend(p);
+}
+
+async function handleQuery(q){
+  log('Запит: '+q);
+  stateText.innerText='обробка';
+  animateThinking(true);
+  const reply = await brainProcess(q);
+  speakText(reply);
+  animateThinking(false);
+}
+
+async function brainProcess(q){
+  q = q.toLowerCase();
+  if(q.includes('стан') || q.includes('status') || q.includes('як справи')){
+    const market = await fetchMarket(); 
+    return `Стан: онлайн. ${cfg.symbol} ціна ${market.last_price}. RSI ${market.rsi}. Є сигнали: ${market.signals.join(', ') || 'немає'}.`;
+  }
+  if(q.includes('аналіз')|| q.includes('аналітика')){
+    const market = await fetchMarket();
+    return `Аналітика для ${cfg.symbol}: ціна ${market.last_price}, RSI ${market.rsi}, EMA швидка ${market.ema_fast}, повільна ${market.ema_slow}.`;
+  }
+  if(q.includes('порада') || q.includes('рекоменда')){
+    const market = await fetchMarket();
+    if(market.rsi < 35) return `Порада: можливий відскок — розглянути довгу позицію з обмеженим ризиком.`;
+    if(market.rsi > 65) return `Порада: ринок перекуплений — обережно або розглянути частковий вихід.`;
+    return `Порада: утримуватися і слідкувати за новинами.`;
+  }
+  return `Я почув: "${q}". Я можу показати аналітику, дати пораду або надіслати сигнал у Telegram.`;
+}
+
+let lastMarket = { last_price: '-', rsi:'-', ema_fast:'-', ema_slow:'-', macd:'-', signals:[] };
+
+async function fetchMarket(){
+  try{
+    const r = await fetch(cfg.analyticsPath + '?_=' + Date.now());
+    if(!r.ok) throw 'no';
+    const j = await r.json();
+    lastMarket = {
+      last_price: j.last_price || j.last || '-',
+      rsi: j.rsi || '-',
+      ema_fast: j.ema_fast || '-',
+      ema_slow: j.ema_slow || '-',
+      macd: j.macd || '-',
+      signals: j.signals || []
+    };
+    document.getElementById('price').innerText = lastMarket.last_price;
+    document.getElementById('rsi').innerText = lastMarket.rsi;
+    document.getElementById('ema').innerText = `${lastMarket.ema_fast} / ${lastMarket.ema_slow}`;
+    document.getElementById('macd').innerText = lastMarket.macd;
+    document.getElementById('signals').innerText = (lastMarket.signals && lastMarket.signals.length)? lastMarket.signals.join(', '): 'немає';
+    return lastMarket;
+  }catch(e){
+    return lastMarket;
+  }
+}
+
+setInterval(()=>{ fetchMarket().catch(()=>{}); }, cfg.pollInterval);
+fetchMarket().catch(()=>{});
+
+const canvas = document.getElementById('three-canvas');
+const renderer = new THREE.WebGLRenderer({canvas, antialias:true, alpha:true});
+renderer.setPixelRatio(window.devicePixelRatio);
+const scene = new THREE.Scene();
+const camera = new THREE.PerspectiveCamera(50,1,0.1,1000);
+camera.position.z = 70;
+
+const particles = new THREE.BufferGeometry();
+const max = cfg.maxParticles;
+const positions = new Float32Array(max*3);
+const sizes = new Float32Array(max);
+const colors = new Float32Array(max*3);
+for(let i=0;i<max;i++){
+  const phi = Math.acos(2*Math.random()-1);
+  const theta = 2*Math.PI*Math.random();
+  const r = 18 + Math.random()*8;
+  const x = r*Math.sin(phi)*Math.cos(theta);
+  const y = r*Math.sin(phi)*Math.sin(theta);
+  const z = r*Math.cos(phi);
+  positions[i*3]=x; positions[i*3+1]=y; positions[i*3+2]=z;
+  sizes[i] = 1 + Math.random()*3;
+  colors[i*3]=0.2 + Math.random()*0.6; colors[i*3+1]=0.6 + Math.random()*0.4; colors[i*3+2]=0.8 + Math.random()*0.2;
+}
+particles.setAttribute('position', new THREE.BufferAttribute(positions,3));
+particles.setAttribute('size', new THREE.BufferAttribute(sizes,1));
+particles.setAttribute('color', new THREE.BufferAttribute(colors,3));
+
+const material = new THREE.ShaderMaterial({
+  uniforms: { pointTexture: { value: null } },
+  vertexShader: `attribute float size; varying vec3 vColor; void main(){ vColor = color; vec4 mvPosition = modelViewMatrix * vec4(position, 1.0); gl_PointSize = size * (300.0 / -mvPosition.z); gl_Position = projectionMatrix * mvPosition; }`,
+  fragmentShader: `varying vec3 vColor; void main(){ float d = length(gl_PointCoord - vec2(0.5)); if(d>0.5) discard; gl_FragColor = vec4(vColor, 1.0); }`,
+  transparent: true,
+  vertexColors: true
+});
+const particleSystem = new THREE.Points(particles, material);
+scene.add(particleSystem);
+
+const linkGeom = new THREE.BufferGeometry();
+const linkPositions = new Float32Array(max*6);
+for(let i=0;i<max;i++){
+  const a = i;
+  const b = (i+Math.floor(max/10))%max;
+  linkPositions[i*6]=positions[a*3]; linkPositions[i*6+1]=positions[a*3+1]; linkPositions[i*6+2]=positions[a*3+2];
+  linkPositions[i*6+3]=positions[b*3]; linkPositions[i*6+4]=positions[b*3+1]; linkPositions[i*6+5]=positions[b*3+2];
+}
+linkGeom.setAttribute('position', new THREE.BufferAttribute(linkPositions,3));
+const linkMat = new THREE.LineBasicMaterial({color:0x0eaeea, transparent:true, opacity:0.05});
+const links = new THREE.LineSegments(linkGeom, linkMat);
+scene.add(links);
+
+function resize(){
+  const w = canvas.clientWidth, h = canvas.clientHeight;
+  if(canvas.width !== w*devicePixelRatio || canvas.height !== h*devicePixelRatio){
+    renderer.setSize(w,h,false);
+    camera.aspect = w/h; camera.updateProjectionMatrix();
+  }
+}
+window.addEventListener('resize', resize);
+resize();
+
+let tstart = performance.now();
+let thinking = false;
+let audioLevel = 0;
+
+function animate(){
+  requestAnimationFrame(animate);
+  resize();
+  const now = (performance.now() - tstart)/1000;
+  scene.rotation.y = now * 0.05;
+  const pos = particles.attributes.position.array;
+  const sarr = particles.attributes.size.array;
+  for(let i=0;i<max;i++){
+    const idx = i*3;
+    const base = Math.sin(now + i)*0.5;
+    const mult = 1 + Math.min(2, audioLevel*3) + (thinking? 0.8 : 0);
+    sarr[i] = (1 + base*0.25) * mult * (1 + (i%5)/10);
+    pos[idx] += (thinking? Math.sin(now*4 + i) * 0.002 : Math.sin(now*0.3 + i)*0.0005);
+    pos[idx+1] += (thinking? Math.cos(now*3 + i) * 0.002 : Math.cos(now*0.2 + i)*0.0005);
+  }
+  particles.attributes.position.needsUpdate = true;
+  particles.attributes.size.needsUpdate = true;
+  linkMat.opacity = 0.02 + Math.min(0.35, audioLevel*0.5);
+  renderer.render(scene, camera);
+}
+animate();
+
+function animateThinking(v){
+  thinking = v && animateNeuronsEl.checked;
+  activeCountEl.innerText = thinking? Math.floor(cfg.maxParticles*0.2) : Math.floor(cfg.maxParticles*0.05);
+}
+
+let audioCtx, analyser, micStream;
+async function initMic(){
+  try{
+    const stream = await navigator.mediaDevices.getUserMedia({audio:true, video:false});
+    audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+    micStream = audioCtx.createMediaStreamSource(stream);
+    analyser = audioCtx.createAnalyser();
+    analyser.fftSize = 256;
+    micStream.connect(analyser);
+    const data = new Uint8Array(analyser.frequencyBinCount);
+    function sample(){
+      if(!analyser) return;
+      analyser.getByteFrequencyData(data);
+      let sum=0; for(let i=0;i<data.length;i++) sum+=data[i];
+      audioLevel = (sum / data.length) / 255;
+      requestAnimationFrame(sample);
+    }
+    sample();
+    log('Мікрофон активований');
+  }catch(e){ log('Мікрофон не доступний: '+e); }
+}
+
+listenBtn.onclick = () => { startListening(); initMic().catch(()=>{}); }
+stopBtn.onclick = () => { stopListening(); thinking=false; animateThinking(false); }
+showAnalytics.onclick = async ()=>{ const m = await fetchMarket(); alert(`Аналітика ${cfg.symbol}\nЦіна: ${m.last_price}\nRSI: ${m.rsi}\nСигнали: ${ (m.signals && m.signals.length)? m.signals.join(', '): 'немає' }`); }
+smartAdvice.onclick = async ()=>{ const reply = await brainProcess('порада'); speakText(reply); }
+initSpeech();
+log('Ініціалізація завершена. Говоріть або натисніть "Говорити".');
+
+</script>
+</body>
+</html>
