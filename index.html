@@ -1,1 +1,52 @@
 
+'<!DOCTYPE html>
+<html lang="uk">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Jarviz 12</title>
+  <style>
+    body {
+      background-color: #0a0a0a;
+      color: #00ffe0;
+      font-family: 'Orbitron', sans-serif;
+      text-align: center;
+      height: 100vh;
+      display: flex;
+      flex-direction: column;
+      justify-content: center;
+      align-items: center;
+    }
+    h1 {
+      font-size: 2em;
+      margin-bottom: 20px;
+    }
+    button {
+      background: #00ffe0;
+      color: #000;
+      font-size: 1.2em;
+      border: none;
+      border-radius: 10px;
+      padding: 15px 30px;
+      cursor: pointer;
+      transition: 0.3s;
+    }
+    button:hover {
+      background: #00a896;
+      color: #fff;
+    }
+  </style>
+</head>
+<body>
+  <h1>👋 Вітаю, я Джарвіс 12</h1>
+  <button onclick="sayHello()">Активувати</button>
+
+  <script>
+    function sayHello() {
+      const msg = new SpeechSynthesisUtterance("Вітаю, я Джарвіс, ваш голосовий асистент!");
+      msg.lang = "uk-UA";
+      speechSynthesis.speak(msg);
+    }
+  </script>
+</body>
+</html>
